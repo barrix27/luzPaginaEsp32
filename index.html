@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full bg-slate-900 text-slate-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control LED ESP32 - Dashboard IoT</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    animation: {
+                        'pulse-glow': 'pulseGlow 2s infinite ease-in-out',
+                    },
+                    keyframes: {
+                        pulseGlow: {
+                            '0%, 100%': { boxShadow: '0 0 15px rgba(59, 130, 246, 0.5)' },
+                            '50%': { boxShadow: '0 0 35px rgba(59, 130, 246, 0.9)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom Glowing & Transition FX */
+        .led-off {
+            background: radial-gradient(circle at 30% 30%, #475569, #0f172a);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.8), 0 0 5px rgba(0,0,0,0.5);
+            border: 2px solid #334155;
+        }
+        .led-on {
+            background: radial-gradient(circle at 30% 30%, #60a5fa, #2563eb);
+            box-shadow: inset 0 -2px 4px rgba(0,0,0,0.2), 0 0 30px #3b82f6, 0 0 60px #1d4ed8;
+            border: 2px solid #93c5fd;
+        }
+        /* Glassmorphism Effect */
+        .glass-card {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+    </style>
+</head>
+<body class="min-h-full font-sans antialiased bg-slate-950 text-slate-100 flex flex-col justify-between">
+
+    <!-- Header -->
+    <header class="glass-card sticky top-0 z-50 border-b border-slate-800">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="p-2.5 bg-blue-600/20 text-blue-400 rounded-xl border border-blue-500/30">
+                    <i class="fa-solid fa-microchip text-2xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-wide text-white">ESP32 IoT Controller</h1>
+                    <p class="text-xs text-slate-400">Panel de Control para LED Interno (GPIO 2)</p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-3 text-xs sm:text-sm">
+                <span id="connectionBadge" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-medium">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    Simulador Activo
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Grid -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex-grow space-y-8">
+
+        <!-- Control Dashboard Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <!-- LED Visual Simulation Card -->
+            <div class="glass-card rounded-2xl p-6 sm:p-8 flex flex-col items-center justify-between shadow-2xl relative overflow-hidden group">
+                <div class="w-full flex justify-between items-center mb-4">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Estado del Hardware</span>
+                    <span id="gpioBadge" class="text-xs font-mono bg-slate-800 text-slate-300 px-2.5 py-1 rounded-md border border-slate-700">GPIO 2 (LED_BUILTIN)</span>
+                </div>
+
+                <!-- Interactive LED Bulb -->
+                <div class="my-8 flex flex-col items-center justify-center">
+                    <div id="ledIndicator" class="led-off w-32 h-32 rounded-full transition-all duration-500 flex items-center justify-center relative cursor-pointer" onclick="toggleLED()">
+                        <i id="ledIcon" class="fa-solid fa-lightbulb text-4xl text-slate-600 transition-all duration-500"></i>
+                    </div>
+                    <div class="mt-6 text-center">
+                        <span id="ledStatusText" class="text-2xl font-bold text-slate-400 tracking-wide uppercase">APAGADO</span>
+                        <p class="text-xs text-slate-500 mt-1">Haz clic en el LED o usa los botones inferiores</p>
+                    </div>
+                </div>
+
+                <!-- Live Switch Bar -->
+                <div class="w-full pt-4 border-t border-slate-800/80 flex items-center justify-between text-sm">
+                    <span class="text-slate-400">Estado de la Señal:</span>
+                    <span id="signalValue" class="font-mono text-slate-300">0 (LOW - 0V)</span>
+                </div>
+            </div>
+
+            <!-- Controls & Mode Selector -->
+            <div class="lg:col-span-2 glass-card rounded-2xl p-6 sm:p-8 flex flex-col justify-between shadow-2xl space-y-6">
+                
+                <div>
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                        <div>
+                            <h2 class="text-lg font-semibold text-white">Controles Principales</h2>
+                            <p class="text-xs text-slate-400">Envía comandos instantáneos a tu placa ESP32</p>
+                        </div>
+                        
+                        <!-- Real Hardware IP Configuration -->
+                        <div class="flex items-center gap-2 bg-slate-900/80 p-2 rounded-xl border border-slate-800">
+                            <i class="fa-solid fa-wifi text-slate-400 text-xs pl-1"></i>
+                            <input type="text" id="espIpInput" placeholder="IP del ESP32 (ej. 192.168.1.50)" class="bg-transparent text-xs text-slate-200 outline-none w-48 font-mono placeholder:text-slate-600">
+                            <button onclick="saveIpSetting()" class="bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 text-xs px-2.5 py-1 rounded-lg transition border border-blue-500/30 font-medium">
+                                Conectar
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
+                        <!-- ON Button -->
+                        <button onclick="setLEDState(true)" class="group relative overflow-hidden bg-gradient-to-br from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 text-white font-semibold py-4 px-6 rounded-xl shadow-lg transition-all duration-200 transform active:scale-95 flex items-center justify-center gap-3">
+                            <i class="fa-solid fa-power-off text-lg group-hover:scale-110 transition-transform"></i>
+                             Encender
+                        </button>
+
+                        <!-- OFF Button -->
+                        <button onclick="setLEDState(false)" class="group relative overflow-hidden bg-gradient-to-br from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-white font-semibold py-4 px-6 rounded-xl shadow-lg transition-all duration-200 transform active:scale-95 flex items-center justify-center gap-3">
+                            <i class="fa-solid fa-circle-xmark text-lg group-hover:scale-110 transition-transform"></i>
+                            Apagar
+                        </button>
+
+                        <!-- TOGGLE Button -->
+                        <button onclick="toggleLED()" class="group relative overflow-hidden bg-gradient-to-br from-blue-600 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 text-white font-semibold py-4 px-6 rounded-xl shadow-lg transition-all duration-200 transform active:scale-95 flex items-center justify-center gap-3">
+                            <i class="fa-solid fa-rotate text-lg group-hover:rotate-180 transition-transform duration-500"></i>
+                            Alternar
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Status Console Log -->
+                <div class="bg-slate-950/80 rounded-xl p-4 border border-slate-800/80 font-mono text-xs">
+                    <div class="flex items-center justify-between text-slate-500 border-b border-slate-800/60 pb-2 mb-2">
+                        <span><i class="fa-solid fa-terminal mr-2"></i>Consola de Eventos</span>
+                        <button onclick="clearLogs()" class="hover:text-slate-300 transition"><i class="fa-solid fa-trash-can"></i> Limpiar</button>
+                    </div>
+                    <div id="consoleLog" class="space-y-1 h-24 overflow-y-auto text-slate-300 scrollbar-thin scrollbar-thumb-slate-800">
+                        <div class="text-blue-400">[SISTEMA] Dashboard iniciado correctamente. Listo para enviar peticiones.</div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Code Section -->
+        <div class="glass-card rounded-2xl p-6 sm:p-8 shadow-2xl">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                <div>
+                    <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-code text-blue-400"></i>
+                        Código C++ para ESP32
+                    </h2>
+                    <p class="text-sm text-slate-400">Servidor Web HTTP básico para la placa ESP32 (Compatible con Arduino IDE y VS Code)</p>
+                </div>
+                <button onclick="copyCode()" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold px-4 py-2.5 rounded-xl shadow border border-blue-400/30 transition transform active:scale-95">
+                    <i id="copyIcon" class="fa-regular fa-copy"></i>
+                    <span id="copyBtnText">Copiar Código C++</span>
+                </button>
+            </div>
+
+            <!-- Code Block Container -->
+            <div class="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950">
+                <pre class="p-4 sm:p-6 text-xs sm:text-sm font-mono text-emerald-400 overflow-x-auto leading-relaxed"><code><span class="text-purple-400">#include</span> <span class="text-amber-300">&lt;WiFi.h&gt;</span>
+<span class="text-purple-400">#include</span> <span class="text-amber-300">&lt;WebServer.h&gt;</span>
+
+<span class="text-slate-500">// === Configuración de Red WiFi ===</span>
+<span class="text-purple-400">const char</span>* ssid = <span class="text-amber-300">"TU_NOMBRE_DE_WIFI"</span>;      <span class="text-slate-500">// Nombre de tu red WiFi</span>
+<span class="text-purple-400">const char</span>* password = <span class="text-amber-300">"TU_CONTRASEÑA"</span>;       <span class="text-slate-500">// Contraseña de tu red WiFi</span>
+
+<span class="text-slate-500">// Servidor Web escuchando en el puerto 80</span>
+WebServer <span class="text-blue-300">server</span>(<span class="text-orange-400">80</span>);
+
+<span class="text-slate-500">// Pin del LED incorporado (En la mayoría de ESP32 es el GPIO 2)</span>
+<span class="text-purple-400">const int</span> ledPin = <span class="text-orange-400">2</span>;
+
+<span class="text-purple-400">void</span> <span class="text-blue-300">setup</span>() {
+  Serial.<span class="text-blue-300">begin</span>(<span class="text-orange-400">115200</span>);
+  pinMode(ledPin, OUTPUT);
+  digitalWrite(ledPin, LOW); <span class="text-slate-500">// Iniciar apagado</span>
+
+  <span class="text-slate-500">// Conexión a la red WiFi</span>
+  Serial.<span class="text-blue-300">print</span>(<span class="text-amber-300">"Conectando a "</span>);
+  Serial.<span class="text-blue-300">println</span>(ssid);
+  WiFi.<span class="text-blue-300">begin</span>(ssid, password);
+
+  <span class="text-purple-400">while</span> (WiFi.<span class="text-blue-300">status</span>() != WL_CONNECTED) {
+    delay(<span class="text-orange-400">500</span>);
+    Serial.<span class="text-blue-300">print</span>(<span class="text-amber-300">"."</span>);
+  }
+
+  Serial.<span class="text-blue-300">println</span>(<span class="text-amber-300">""</span>);
+  Serial.<span class="text-blue-300">println</span>(<span class="text-amber-300">"¡Conectado exitosamente a la red WiFi!"</span>);
+  Serial.<span class="text-blue-300">print</span>(<span class="text-amber-300">"Dirección IP asignada: "</span>);
+  Serial.<span class="text-blue-300">println</span>(WiFi.<span class="text-blue-300">localIP</span>());
+
+  <span class="text-slate-500">// Configuración de Rutas Endpoints</span>
+  server.<span class="text-blue-300">on</span>(<span class="text-amber-300">"/led/on"</span>, []() {
+    digitalWrite(ledPin, HIGH);
+    server.<span class="text-blue-300">send</span>(<span class="text-orange-400">200</span>, <span class="text-amber-300">"text/plain"</span>, <span class="text-amber-300">"LED ENCENDIDO"</span>);
+  });
+
+  server.<span class="text-blue-300">on</span>(<span class="text-amber-300">"/led/off"</span>, []() {
+    digitalWrite(ledPin, LOW);
+    server.<span class="text-blue-300">send</span>(<span class="text-orange-400">200</span>, <span class="text-amber-300">"text/plain"</span>, <span class="text-amber-300">"LED APAGADO"</span>);
+  });
+
+  server.<span class="text-blue-300">on</span>(<span class="text-amber-300">"/led/toggle"</span>, []() {
+    <span class="text-purple-400">int</span> currentState = digitalRead(ledPin);
+    digitalWrite(ledPin, !currentState);
+    server.<span class="text-blue-300">send</span>(<span class="text-orange-400">200</span>, <span class="text-amber-300">"text/plain"</span>, !currentState ? <span class="text-amber-300">"LED ENCENDIDO"</span> : <span class="text-amber-300">"LED APAGADO"</span>);
+  });
+
+  <span class="text-slate-500">// Iniciar Servidor</span>
+  server.<span class="text-blue-300">begin</span>();
+  Serial.<span class="text-blue-300">println</span>(<span class="text-amber-300">"Servidor Web iniciado."</span>);
+}
+
+<span class="text-purple-400">void</span> <span class="text-blue-300">loop</span>() {
+  server.<span class="text-blue-300">handleClient</span>(); <span class="text-slate-500">// Procesar solicitudes entrantes</span>
+}</code></pre>
+            </div>
+        </div>
+
+        <!-- Step-by-Step Guide for VS Code -->
+        <div class="glass-card rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6">
+            <div>
+                <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-graduation-cap text-blue-400"></i>
+                    Guía: Cómo subir el código usando Visual Studio Code
+                </h2>
+                <p class="text-sm text-slate-400">Sigue estos sencillos pasos para programar tu placa ESP32 utilizando la extensión **PlatformIO** o **Arduino** en VS Code.</p>
+            </div>
+
+            <!-- Steps Accordion/Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                
+                <!-- Step 1 -->
+                <div class="bg-slate-900/60 p-5 rounded-xl border border-slate-800 space-y-3 relative">
+                    <span class="w-8 h-8 flex items-center justify-center bg-blue-600/20 text-blue-400 font-bold rounded-lg border border-blue-500/30 text-sm">1</span>
+                    <h3 class="font-semibold text-slate-200">Instalar VS Code & Extensiones</h3>
+                    <p class="text-xs text-slate-400 leading-relaxed">
+                        Abre VS Code y navega a la sección de extensiones (<kbd class="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-300">Ctrl+Shift+X</kbd>). Busca e instala <strong>PlatformIO IDE</strong> o <strong>Arduino</strong>.
+                    </p>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="bg-slate-900/60 p-5 rounded-xl border border-slate-800 space-y-3 relative">
+                    <span class="w-8 h-8 flex items-center justify-center bg-blue-600/20 text-blue-400 font-bold rounded-lg border border-blue-500/30 text-sm">2</span>
+                    <h3 class="font-semibold text-slate-200">Configurar Credenciales WiFi</h3>
+                    <p class="text-xs text-slate-400 leading-relaxed">
+                        Copia el código C++ provisto arriba. Reemplaza <code class="text-amber-300">"TU_NOMBRE_DE_WIFI"</code> y <code class="text-amber-300">"TU_CONTRASEÑA"</code> con las credenciales de tu red WiFi local (2.4 GHz).
+                    </p>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="bg-slate-900/60 p-5 rounded-xl border border-slate-800 space-y-3 relative">
+                    <span class="w-8 h-8 flex items-center justify-center bg-blue-600/20 text-blue-400 font-bold rounded-lg border border-blue-500/30 text-sm">3</span>
+                    <h3 class="font-semibold text-slate-200">Conectar y Subir</h3>
+                    <p class="text-xs text-slate-400 leading-relaxed">
+                        Conecta el ESP32 a la PC con cable USB. Haz clic en el ícono de flecha <i class="fa-solid fa-arrow-right-long text-blue-400"></i> (Upload) en la barra inferior de PlatformIO para compilar y cargar.
+                    </p>
+                </div>
+
+                <!-- Step 4 -->
+                <div class="bg-slate-900/60 p-5 rounded-xl border border-slate-800 space-y-3 relative">
+                    <span class="w-8 h-8 flex items-center justify-center bg-blue-600/20 text-blue-400 font-bold rounded-lg border border-blue-500/30 text-sm">4</span>
+                    <h3 class="font-semibold text-slate-200">Obtener IP & Controlar</h3>
+                    <p class="text-xs text-slate-400 leading-relaxed">
+                        Abre el Monitor Serie (Baud rate: 115200). Copia la dirección IP mostrada (ej. 192.168.1.50) e ingrésala en el panel superior de este sitio web.
+                    </p>
+                </div>
+
+            </div>
+
+            <!-- Helpful Tips Callout -->
+            <div class="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-start gap-3 text-xs text-amber-300">
+                <i class="fa-solid fa-triangle-exclamation text-base mt-0.5"></i>
+                <div>
+                    <span class="font-bold block">¿Problemas al subir el código?</span>
+                    Si el monitor muestra "Connecting......", mantén presionado el botón <strong>BOOT</strong> en tu placa ESP32 durante el proceso de carga hasta que comience el grabado de la memoria flash.
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="glass-card border-t border-slate-800 py-6 mt-8">
+        <div class="max-w-7xl mx-auto px-4 text-center text-xs text-slate-500 flex flex-col sm:flex-row justify-between items-center gap-2">
+            <p>© Visual Studio Code + ESP32 Web Controller Project</p>
+            <p class="flex items-center gap-1">
+                Desarrollado con <i class="fa-solid fa-heart text-rose-500"></i> e Internet de las Cosas (IoT)
+            </p>
+        </div>
+    </footer>
+
+    <!-- Logic Script -->
+    <script>
+        // State Variables
+        let isLedOn = false;
+        let espIpAddress = "";
+
+        // DOM Elements
+        const ledIndicator = document.getElementById('ledIndicator');
+        const ledIcon = document.getElementById('ledIcon');
+        const ledStatusText = document.getElementById('ledStatusText');
+        const signalValue = document.getElementById('signalValue');
+        const consoleLog = document.getElementById('consoleLog');
+        const espIpInput = document.getElementById('espIpInput');
+
+        // Function to update UI according to LED status
+        function updateUI(state) {
+            isLedOn = state;
+            if (isLedOn) {
+                ledIndicator.className = "led-on w-32 h-32 rounded-full transition-all duration-500 flex items-center justify-center relative cursor-pointer animate-pulse-glow";
+                ledIcon.className = "fa-solid fa-lightbulb text-5xl text-amber-300 drop-shadow-[0_0_10px_rgba(252,211,77,0.8)] transition-all duration-500";
+                ledStatusText.innerText = "ENCENDIDO";
+                ledStatusText.className = "text-2xl font-bold text-blue-400 tracking-wide uppercase";
+                signalValue.innerText = "1 (HIGH - 3.3V)";
+            } else {
+                ledIndicator.className = "led-off w-32 h-32 rounded-full transition-all duration-500 flex items-center justify-center relative cursor-pointer";
+                ledIcon.className = "fa-solid fa-lightbulb text-4xl text-slate-600 transition-all duration-500";
+                ledStatusText.innerText = "APAGADO";
+                ledStatusText.className = "text-2xl font-bold text-slate-400 tracking-wide uppercase";
+                signalValue.innerText = "0 (LOW - 0V)";
+            }
+        }
+
+        // Toggle LED State
+        function toggleLED() {
+            setLEDState(!isLedOn);
+        }
+
+        // Set LED State (On or Off)
+        function setLEDState(targetState) {
+            updateUI(targetState);
+            const actionText = targetState ? "ON" : "OFF";
+            const endpoint = targetState ? "/led/on" : "/led/off";
+
+            if (espIpAddress) {
+                const targetUrl = `http://${espIpAddress}${endpoint}`;
+                addLog(`Enviando petición HTTP GET a: ${targetUrl}`, 'info');
+                
+                // Real HTTP Request to ESP32 Hardware
+                fetch(targetUrl, { mode: 'no-cors' })
+                    .then(() => {
+                        addLog(`Comando enviado exitosamente a la IP ${espIpAddress}`, 'success');
+                    })
+                    .catch(err => {
+                        addLog(`Error al conectar con ESP32 (${err.message}). Verifica que estés en la misma red WiFi.`, 'error');
+                    });
+            } else {
+                addLog(`[SIMULACIÓN] Comando LED ${actionText} ejecutado en la vista previa.`, 'info');
+            }
+        }
+
+        // Save IP Configuration
+        function saveIpSetting() {
+            const inputVal = espIpInput.value.trim();
+            if (inputVal !== "") {
+                espIpAddress = inputVal;
+                addLog(`Dirección IP guardada: ${espIpAddress}. Modo hardware real activado.`, 'success');
+            } else {
+                espIpAddress = "";
+                addLog("IP eliminada. Volviendo al modo de simulación gráfica.", 'info');
+            }
+        }
+
+        // Add Log to Console
+        function addLog(message, type = 'info') {
+            const time = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            
+            let colorClass = "text-slate-300";
+            if (type === 'success') colorClass = "text-emerald-400";
+            if (type === 'error') colorClass = "text-rose-400";
+            if (type === 'info') colorClass = "text-blue-400";
+
+            logEntry.className = colorClass;
+            logEntry.innerText = `[${time}] ${message}`;
+
+            consoleLog.appendChild(logEntry);
+            consoleLog.scrollTop = consoleLog.scrollHeight;
+        }
+
+        // Clear Console Logs
+        function clearLogs() {
+            consoleLog.innerHTML = '';
+            addLog("Consola limpiada.", 'info');
+        }
+
+        // Copy C++ Code function
+        function copyCode() {
+            const codeText = `#include <WiFi.h>
+#include <WebServer.h>
+
+const char* ssid = "TU_NOMBRE_DE_WIFI";
+const char* password = "TU_CONTRASEÑA";
+
+WebServer server(80);
+const int ledPin = 2;
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(ledPin, OUTPUT);
+  digitalWrite(ledPin, LOW);
+
+  Serial.print("Conectando a ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("¡Conectado exitosamente!");
+  Serial.print("Dirección IP asignada: ");
+  Serial.println(WiFi.localIP());
+
+  server.on("/led/on", []() {
+    digitalWrite(ledPin, HIGH);
+    server.send(200, "text/plain", "LED ENCENDIDO");
+  });
+
+  server.on("/led/off", []() {
+    digitalWrite(ledPin, LOW);
+    server.send(200, "text/plain", "LED APAGADO");
+  });
+
+  server.on("/led/toggle", []() {
+    int currentState = digitalRead(ledPin);
+    digitalWrite(ledPin, !currentState);
+    server.send(200, "text/plain", !currentState ? "LED ENCENDIDO" : "LED APAGADO");
+  });
+
+  server.begin();
+  Serial.println("Servidor Web iniciado.");
+}
+
+void loop() {
+  server.handleClient();
+}`;
+
+            // Execute Copy Command
+            const tempTextArea = document.createElement("textarea");
+            tempTextArea.value = codeText;
+            document.body.appendChild(tempTextArea);
+            tempTextArea.select();
+            document.execCommand("copy");
+            document.body.removeChild(tempTextArea);
+
+            // Update Button Feedback
+            const copyBtnText = document.getElementById('copyBtnText');
+            const copyIcon = document.getElementById('copyIcon');
+
+            copyBtnText.innerText = "¡Copiado!";
+            copyIcon.className = "fa-solid fa-check text-emerald-300";
+
+            setTimeout(() => {
+                copyBtnText.innerText = "Copiar Código C++";
+                copyIcon.className = "fa-regular fa-copy";
+            }, 2500);
+
+            addLog("Código C++ copiado al portapapeles.", 'success');
+        }
+    </script>
+</body>
+</html>
